@@ -84,8 +84,15 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
             </div>
           ) : leads.length === 0 ? (
             <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-              <p className="font-medium">No leads found.</p>
-              <p className="text-sm mt-2">Leads captured by Thandi will appear here.</p>
+              <p className="font-medium text-lg text-slate-900 dark:text-white mb-2">No leads found.</p>
+              <p className="text-sm">Leads captured by Thandi will appear here.</p>
+              <div className="mt-6 bg-slate-100 dark:bg-slate-800 p-4 rounded-xl inline-block text-left text-xs max-w-lg border border-slate-200 dark:border-slate-700">
+                <p className="font-bold text-slate-900 dark:text-white mb-1">Are leads not showing up?</p>
+                <p className="mb-2">If Thandi is capturing leads but they aren't appearing here, you likely need to enable "Select" permissions in Supabase.</p>
+                <code className="block bg-slate-900 text-green-400 p-2 rounded border border-slate-700 mt-2 font-mono text-[10px]">
+                  create policy "Allow public lead reading" on leads for select using (true);
+                </code>
+              </div>
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
