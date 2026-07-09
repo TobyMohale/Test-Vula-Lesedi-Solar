@@ -23,6 +23,7 @@ import ReviewModal from "./components/ReviewModal";
 import CookieConsent from "./components/CookieConsent";
 import ExitIntentPopup from "./components/ExitIntentPopup";
 import VoiceReceptionist from "./components/VoiceReceptionist";
+import AdminDashboard from "./components/AdminDashboard";
 import { MessageSquare } from "lucide-react";
 
 export default function App() {
@@ -44,6 +45,11 @@ export default function App() {
   const toggleTheme = () => {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
+
+  // Simple client-side routing
+  if (window.location.pathname === '/admin') {
+    return <AdminDashboard theme={theme} toggleTheme={toggleTheme} />;
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased overflow-x-hidden selection:bg-[#16a34a] selection:text-white transition-colors duration-300">

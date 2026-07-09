@@ -76,6 +76,12 @@ export default function Footer() {
               <li>
                 <a href="#faqs" className="hover:text-green-400 transition-colors">FAQs</a>
               </li>
+              <li>
+                <a href="/admin" className="text-slate-600 hover:text-green-400 transition-colors flex items-center gap-1.5 mt-4 pt-4 border-t border-slate-800">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Admin Portal
+                </a>
+              </li>
             </ul>
           </div>
 

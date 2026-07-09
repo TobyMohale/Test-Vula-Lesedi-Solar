@@ -647,19 +647,39 @@ export default function VoiceReceptionist() {
               <div className="space-y-4 mb-8">
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Full Name</span>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.name || "N/A"}</p>
+                  <input 
+                    type="text" 
+                    value={leadVerification.args?.name || ""} 
+                    onChange={(e) => setLeadVerification({...leadVerification, args: {...leadVerification.args, name: e.target.value}})}
+                    className="w-full bg-transparent border-none p-0 text-sm font-medium text-slate-900 dark:text-white focus:ring-0 outline-none"
+                  />
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Phone Number</span>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.phone || "N/A"}</p>
+                  <input 
+                    type="text" 
+                    value={leadVerification.args?.phone || ""} 
+                    onChange={(e) => setLeadVerification({...leadVerification, args: {...leadVerification.args, phone: e.target.value}})}
+                    className="w-full bg-transparent border-none p-0 text-sm font-medium text-slate-900 dark:text-white focus:ring-0 outline-none"
+                  />
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Email Address</span>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.email || "N/A"}</p>
+                  <input 
+                    type="email" 
+                    value={leadVerification.args?.email || ""} 
+                    onChange={(e) => setLeadVerification({...leadVerification, args: {...leadVerification.args, email: e.target.value}})}
+                    className="w-full bg-transparent border-none p-0 text-sm font-medium text-slate-900 dark:text-white focus:ring-0 outline-none"
+                  />
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Location</span>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.location || "N/A"}</p>
+                  <input 
+                    type="text" 
+                    value={leadVerification.args?.location || ""} 
+                    onChange={(e) => setLeadVerification({...leadVerification, args: {...leadVerification.args, location: e.target.value}})}
+                    className="w-full bg-transparent border-none p-0 text-sm font-medium text-slate-900 dark:text-white focus:ring-0 outline-none"
+                  />
                 </div>
               </div>
 
