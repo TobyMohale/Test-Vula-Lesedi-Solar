@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: Vula Lesedi Power Solutions",
+  "description": "Reliable solar and backup power solutions in Gauteng. Professional installations of solar panels, inverters, and battery systems tailored to your budget.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
