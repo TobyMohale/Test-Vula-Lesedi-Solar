@@ -3,12 +3,18 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Initialize Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || 'https://pviwktddsltnjjnokrwc.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'sb_publishable_PbxicU-umhZOO4PRhSGnHQ_qztBo_UW'; // Using anon/publishable key provided
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(express.json());
 
@@ -120,11 +126,40 @@ async function startServer() {
           },
           systemInstruction: SYSTEM_INSTRUCTION,
           outputAudioTranscription: {},
-          inputAudioTranscription: {}
+          inputAudioTranscription: {},
+          tools: [{
+            functionDeclarations: [{
+              name: "verify_lead_details",
+              description: "Trigger a UI verification screen for the caller to confirm their lead details. Only use this when they want a quote or a booking and have provided their full name, phone number, email, and location.",
+              parameters: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  phone: { type: Type.STRING },
+                  email: { type: Type.STRING },
+                  location: { type: Type.STRING }
+                },
+                required: ["name", "phone", "email", "location"]
+              }
+            }]
+          }]
         },
         callbacks: {
           onmessage: (message: any) => {
             if (clientWs.readyState !== WebSocket.OPEN) return;
+
+            if (message.toolCall) {
+              const call = message.toolCall.functionCalls?.[0];
+              if (call && call.name === "verify_lead_details") {
+                clientWs.send(JSON.stringify({
+                  toolCall: {
+                    id: call.id,
+                    name: call.name,
+                    args: call.args
+                  }
+                }));
+              }
+            }
 
             // 1. Handle user's spoken input transcription
             const inputTranscriptionObj = message.serverContent?.inputTranscription;
@@ -209,6 +244,42 @@ async function startServer() {
               turns: [{ role: "user", parts: [{ text: parsed.textInput }] }],
               turnComplete: true
             });
+            return;
+          }
+
+          // Handle tool response from the client (e.g., lead verification confirmation)
+          if (parsed.toolResponse) {
+            const { id, name, result, lead } = parsed.toolResponse;
+            if (name === "verify_lead_details") {
+              if (result === "confirmed") {
+                // Save to Supabase
+                supabase.from('leads').insert([lead]).then(({ error }) => {
+                  if (error) {
+                    console.error("Supabase insert error:", error);
+                  } else {
+                    console.log("Lead saved to Supabase successfully.");
+                  }
+                });
+                
+                // Tell Gemini the tool was successful
+                session.sendToolResponse({
+                  functionResponses: [{
+                    id: id,
+                    name: name,
+                    response: { status: "success", message: "User confirmed their details and lead was saved." }
+                  }]
+                });
+              } else {
+                // Tell Gemini the user cancelled or rejected the details
+                session.sendToolResponse({
+                  functionResponses: [{
+                    id: id,
+                    name: name,
+                    response: { status: "cancelled", message: "User cancelled or rejected the details. Ask them for the correct details." }
+                  }]
+                });
+              }
+            }
             return;
           }
 

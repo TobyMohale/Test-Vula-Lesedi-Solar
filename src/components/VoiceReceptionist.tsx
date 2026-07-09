@@ -53,6 +53,7 @@ export default function VoiceReceptionist() {
   const [transcriptLog, setTranscriptLog] = useState<{ sender: "ai" | "user"; text: string }[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [leadVerification, setLeadVerification] = useState<{ id: string, name: string, args: any } | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const inputAudioCtxRef = useRef<AudioContext | null>(null);
@@ -145,6 +146,10 @@ export default function VoiceReceptionist() {
             setError(msg.error);
             disconnect();
             return;
+          }
+
+          if (msg.toolCall) {
+            setLeadVerification(msg.toolCall);
           }
 
           if (msg.interrupted) {
@@ -621,6 +626,84 @@ export default function VoiceReceptionist() {
           )}
         </button>
       </div>
+      {/* Lead Verification Overlay Modal */}
+      <AnimatePresence>
+        {leadVerification && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl max-w-md w-full relative"
+            >
+              <h3 className="text-lg font-black uppercase tracking-wider text-slate-900 dark:text-slate-100 mb-2">Confirm Your Details</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Thandi has recorded the following information for your quote. Please verify it before we proceed.</p>
+              
+              <div className="space-y-4 mb-8">
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Full Name</span>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.name || "N/A"}</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Phone Number</span>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.phone || "N/A"}</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Email Address</span>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.email || "N/A"}</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Location</span>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{leadVerification.args?.location || "N/A"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full">
+                <button
+                  onClick={() => {
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({
+                        toolResponse: {
+                          id: leadVerification.id,
+                          name: leadVerification.name,
+                          result: "cancelled"
+                        }
+                      }));
+                    }
+                    setLeadVerification(null);
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                >
+                  Edit / Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({
+                        toolResponse: {
+                          id: leadVerification.id,
+                          name: leadVerification.name,
+                          result: "confirmed",
+                          lead: leadVerification.args
+                        }
+                      }));
+                    }
+                    setLeadVerification(null);
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-[#16a34a] hover:bg-[#15803d] text-white transition-colors shadow-lg shadow-[#16a34a]/20 cursor-pointer"
+                >
+                  Confirm & Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
