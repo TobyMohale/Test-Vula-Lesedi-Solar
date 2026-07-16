@@ -65,6 +65,23 @@ export default function VoiceReceptionist() {
   const isMutedRef = useRef(false);
   const timerIntervalRef = useRef<any>(null);
 
+  // Sync state changes with tracking refs to avoid stale closures in ws.onclose/disconnect
+  const transcriptLogRef = useRef<{ sender: "ai" | "user"; text: string }[]>([]);
+  const leadVerificationRef = useRef<any>(null);
+  const callDurationRef = useRef<number>(0);
+
+  useEffect(() => {
+    transcriptLogRef.current = transcriptLog;
+  }, [transcriptLog]);
+
+  useEffect(() => {
+    leadVerificationRef.current = leadVerification;
+  }, [leadVerification]);
+
+  useEffect(() => {
+    callDurationRef.current = callDuration;
+  }, [callDuration]);
+
   // Sync isMutedRef with state to prevent stale closures in the audio handler
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -303,6 +320,52 @@ export default function VoiceReceptionist() {
   };
 
   const disconnect = () => {
+    // Capture the completed conversation and write to CRM calls log
+    const transcript = transcriptLogRef.current;
+    const duration = callDurationRef.current;
+    
+    // Only log if there was some active dialog
+    if (transcript.length > 0 && duration > 0) {
+      const verObj = leadVerificationRef.current;
+      const clientName = verObj?.args?.name || "Anonymous Caller";
+      const clientPhone = verObj?.args?.phone || "N/A";
+      const clientEmail = verObj?.args?.email || "N/A";
+      const clientLocation = verObj?.args?.location || "N/A";
+
+      const newCall = {
+        id: Math.random().toString(36).substring(2, 11),
+        clientName,
+        clientPhone,
+        clientEmail,
+        clientLocation,
+        duration,
+        minutes: parseFloat((duration / 60).toFixed(2)),
+        timestamp: new Date().toISOString(),
+        transcript: [...transcript]
+      };
+
+      try {
+        const existingCalls = JSON.parse(localStorage.getItem("vula_lesedi_calls") || "[]");
+        existingCalls.unshift(newCall);
+        localStorage.setItem("vula_lesedi_calls", JSON.stringify(existingCalls));
+        
+        // Also trigger timeline history logging for the matching lead if found
+        // We will match either by verified lead email/phone or name
+        const existingLeadsStr = localStorage.getItem("vula_lesedi_lead_statuses") || "{}";
+        // To log audit trail correctly, we also update the lead history log!
+        const existingHistory = JSON.parse(localStorage.getItem("vula_lesedi_lead_history") || "{}");
+        
+        // We can check if any lead has this email or phone
+        // Since we can match on Dashboard reload, we can write a general timeline logging trigger here
+        // We will let the AdminDashboard handle timeline matching of calls automatically based on phone/name!
+        
+        // Dispatch storage event to alert dashboard in real-time
+        window.dispatchEvent(new Event("storage"));
+      } catch (err) {
+        console.warn("Failed to write to local storage calls registry", err);
+      }
+    }
+
     setIsConnecting(false);
     setIsConnected(false);
     setIsMuted(false);

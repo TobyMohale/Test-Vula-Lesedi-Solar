@@ -23,6 +23,54 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// API route to send emails via Resend
+app.post("/api/send-email", async (req, res) => {
+  const { to, subject, html } = req.body;
+  if (!to || !subject || !html) {
+    return res.status(400).json({ error: "Missing required fields: to, subject, html" });
+  }
+
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) {
+    console.log("----------------- EMAIL PREVIEW (RESEND SIMULATOR) -----------------");
+    console.log(`To: ${to}`);
+    console.log(`Subject: ${subject}`);
+    console.log(`Content:\n${html.replace(/<[^>]*>/g, " ").substring(0, 300)}...`);
+    console.log("--------------------------------------------------------------------");
+    return res.json({ 
+      success: true, 
+      simulated: true, 
+      message: "Resend API Key is not configured. Email preview logged to server terminal successfully." 
+    });
+  }
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${resendKey}`
+      },
+      body: JSON.stringify({
+        from: "Vula Lesedi Power <onboarding@resend.dev>",
+        to,
+        subject,
+        html
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!response.ok) {
+      throw new Error(data.message || "Failed to send email via Resend API");
+    }
+
+    res.json({ success: true, data });
+  } catch (err: any) {
+    console.error("Resend API Error:", err);
+    res.status(500).json({ error: err.message || "Internal server error sending email" });
+  }
+});
+
 const SYSTEM_INSTRUCTION = `# PERSONA & IDENTITY
 - **Name:** Thandi
 - **Role:** AI Front Desk Receptionist and Solar Advisor for Vula Lesedi Power Solutions.
