@@ -63,12 +63,110 @@ const STATUS_COLORS: Record<string, { bg: string, text: string, border: string, 
   }
 };
 
-export default function AdminDashboard({ theme, toggleTheme }: { theme: string, toggleTheme: () => void }) {
+export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme: string, toggleTheme: () => void, onLogout?: () => void }) {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSchemaNotice, setShowSchemaNotice] = useState(false);
+
+  // Admin Login and OAuth States (now fully managed by AdminGuard, defaulted to true here)
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+
+  const handleGoogleCredentialResponse = (response: any) => {
+    try {
+      const jwt = response.credential;
+      const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      const email = payload.email;
+      const isEmailVerified = payload.email_verified;
+
+      if (isEmailVerified && email === 'lesedisolarandbackup@gmail.com') {
+        setIsAuthenticated(true);
+        localStorage.setItem('vula_lesedi_admin_authenticated', 'true');
+        setAuthError(null);
+        logLeadHistory('system', 'admin_login', `Admin logged in via Google OAuth (${email})`);
+      } else {
+        setAuthError(`Access Denied: Google account (${email}) is not authorized as Admin.`);
+      }
+    } catch (e: any) {
+      setAuthError('Failed to parse Google login token.');
+    }
+  };
+
+  const handleEmailPasswordLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    const emailClean = adminEmail.trim().toLowerCase();
+    const passwordClean = adminPassword.trim();
+
+    if (emailClean === 'lesedisolarandbackup@gmail.com' && passwordClean === 'Vincent@1987') {
+      setIsAuthenticated(true);
+      localStorage.setItem('vula_lesedi_admin_authenticated', 'true');
+      setAuthError(null);
+      logLeadHistory('system', 'admin_login', `Admin logged in via credentials (${emailClean})`);
+    } else {
+      setAuthError('Invalid administrator credentials. Please check your email and password.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('vula_lesedi_admin_authenticated');
+    if (onLogout) {
+      onLogout();
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) return;
+
+    let script = document.getElementById('google-gsi-script') as HTMLScriptElement;
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'google-gsi-script';
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    const initGsi = () => {
+      const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '948613355621-cl4peq5mmfledro8pp606l6dre0jv26b.apps.googleusercontent.com';
+      if ((window as any).google?.accounts?.id) {
+        (window as any).google.accounts.id.initialize({
+          client_id: clientId,
+          callback: handleGoogleCredentialResponse,
+        });
+        const container = document.getElementById('google-signin-btn-container');
+        if (container) {
+          (window as any).google.accounts.id.renderButton(
+            container,
+            { theme: 'outline', size: 'large', width: 360 }
+          );
+        }
+      }
+    };
+
+    script.onload = () => {
+      initGsi();
+    };
+
+    if ((window as any).google?.accounts?.id) {
+      initGsi();
+    }
+
+    const timer = setTimeout(() => {
+      initGsi();
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isAuthenticated]);
 
   // Search & filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -295,8 +393,10 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
   };
 
   useEffect(() => {
-    fetchLeads();
-  }, []);
+    if (isAuthenticated) {
+      fetchLeads();
+    }
+  }, [isAuthenticated]);
 
   const handleStatusChange = async (leadId: string, newStatus: string) => {
     const prevStatus = localStatuses[leadId] || (leads.find(l => l.id === leadId)?.status) || 'New';
@@ -620,6 +720,112 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
     document.body.removeChild(link);
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-[#16a34a] selection:text-white transition-colors duration-300">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="flex justify-center">
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-[#16a34a] rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/10">
+              <Shield className="w-8 h-8" />
+            </div>
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-black uppercase tracking-tight text-slate-900 dark:text-white">
+            Vula Lesedi
+          </h2>
+          <p className="mt-2 text-center text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Administrator Gateway
+          </p>
+        </div>
+
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-white dark:bg-slate-900 py-8 px-4 shadow-xl border border-slate-200 dark:border-slate-800 rounded-3xl sm:px-10">
+            {authError && (
+              <div className="mb-6 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 p-4 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs font-semibold text-red-700 dark:text-red-400 leading-normal">
+                  {authError}
+                </p>
+              </div>
+            )}
+
+            <form onSubmit={handleEmailPasswordLogin} className="space-y-5">
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  Admin Email Address
+                </label>
+                <div className="relative rounded-xl shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="email"
+                    required
+                    value={adminEmail}
+                    onChange={(e) => setAdminEmail(e.target.value)}
+                    placeholder="admin@lesedipower.co.za"
+                    className="block w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-[#16a34a] dark:text-white transition-all font-medium placeholder-slate-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  Security Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="block w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#16a34a] focus:border-[#16a34a] dark:text-white transition-all font-medium placeholder-slate-400"
+                />
+              </div>
+
+              <div>
+                <button
+                  type="submit"
+                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-lg text-xs font-black uppercase tracking-wider text-white bg-[#16a34a] hover:bg-[#15803d] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16a34a] transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] duration-150"
+                >
+                  Verify Credentials
+                </button>
+              </div>
+            </form>
+
+            <div className="mt-8">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200 dark:border-slate-800" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase font-black tracking-wider">
+                  <span className="px-3 bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-500">
+                    or authenticate with
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col items-center">
+                <div id="google-signin-btn-container" className="w-full flex justify-center h-[44px]"></div>
+                <p className="mt-3 text-[10px] text-center text-slate-400 leading-normal">
+                  Requires authorized Administrator Google account
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800 text-center">
+              <button
+                onClick={() => window.location.href = '/'}
+                className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+              >
+                ← Return to Homepage
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans p-6 selection:bg-[#16a34a] selection:text-white transition-colors duration-300">
       <div className="max-w-6xl mx-auto space-y-8 relative">
@@ -646,9 +852,15 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
             </button>
             <button 
               onClick={() => window.location.href = '/'}
-              className="px-4 py-2.5 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors w-full sm:w-auto text-center cursor-pointer shadow-md"
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors w-full sm:w-auto text-center cursor-pointer border border-slate-200 dark:border-slate-700"
             >
               Back to Site
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="px-4 py-2.5 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors w-full sm:w-auto text-center cursor-pointer shadow-md"
+            >
+              Log Out
             </button>
           </div>
         </header>
@@ -1338,7 +1550,7 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
                                   ? "bg-[#16a34a]/15 text-[#15803d]"
                                   : "bg-slate-250 text-slate-600 dark:bg-slate-800 dark:text-slate-350"
                             }`}>
-                              {Math.floor(call.duration / 60)}m {call.duration % 60}s
+                              {Math.floor(call.duration / 60)}m {call.duration % 60}s ({call.minutes ?? parseFloat((call.duration / 60).toFixed(2))} min)
                             </span>
                           </div>
 
@@ -2051,7 +2263,7 @@ export default function AdminDashboard({ theme, toggleTheme }: { theme: string, 
                                     </div>
                                   </div>
                                   <span className="bg-slate-150 dark:bg-slate-800 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                    {Math.floor(call.duration / 60)}m {call.duration % 60}s
+                                    {Math.floor(call.duration / 60)}m {call.duration % 60}s ({call.minutes ?? parseFloat((call.duration / 60).toFixed(2))} min)
                                   </span>
                                 </div>
 

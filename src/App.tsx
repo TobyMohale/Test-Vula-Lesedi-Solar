@@ -24,6 +24,7 @@ import CookieConsent from "./components/CookieConsent";
 import ExitIntentPopup from "./components/ExitIntentPopup";
 import VoiceReceptionist from "./components/VoiceReceptionist";
 import AdminDashboard from "./components/AdminDashboard";
+import AdminGuard from "./components/AdminGuard";
 import { MessageSquare } from "lucide-react";
 
 export default function App() {
@@ -48,7 +49,11 @@ export default function App() {
 
   // Simple client-side routing
   if (window.location.pathname === '/admin') {
-    return <AdminDashboard theme={theme} toggleTheme={toggleTheme} />;
+    return (
+      <AdminGuard theme={theme} toggleTheme={toggleTheme}>
+        <AdminDashboard theme={theme} toggleTheme={toggleTheme} />
+      </AdminGuard>
+    );
   }
 
   return (
