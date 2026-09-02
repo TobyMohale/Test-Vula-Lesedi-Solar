@@ -238,12 +238,39 @@ export default function VoiceReceptionist() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log("WebSocket closed code:", event.code, "reason:", event.reason);
+        if (event.code === 1011 && event.reason) {
+          setError(event.reason);
+        } else if (event.reason) {
+          setError(event.reason);
+        }
         disconnect();
       };
 
-      ws.onerror = () => {
-        setError("Network error occurred with voice session.");
+      ws.onerror = async (err) => {
+        console.error("WebSocket connection error:", err);
+        try {
+          const res = await fetch("/api/voice-status");
+          if (res.ok) {
+            const status = await res.json();
+            if (!status.hasGeminiKey) {
+              setError("GEMINI_API_KEY is not configured in your server variables. Please add GEMINI_API_KEY in your Railway project Variables.");
+              disconnect();
+              return;
+            }
+          }
+        } catch (e) {
+          setError("Cannot reach the backend server. Please verify your Railway deployment is active and online.");
+          disconnect();
+          return;
+        }
+
+        setError((prev) => 
+          prev && !prev.includes("Network error")
+            ? prev
+            : "Voice gateway connection error. Please check your internet or Railway deployment settings."
+        );
         disconnect();
       };
 
@@ -646,9 +673,16 @@ export default function VoiceReceptionist() {
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 px-3.5 py-2 rounded-xl text-xs font-semibold max-w-xs shadow-md"
+            className="bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-300 px-3.5 py-2 rounded-xl text-xs font-medium max-w-xs shadow-md flex items-start gap-2"
           >
-            {error}
+            <span className="flex-1 leading-tight">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600 dark:hover:text-red-200 transition-colors p-0.5 cursor-pointer"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </motion.div>
         )}
 

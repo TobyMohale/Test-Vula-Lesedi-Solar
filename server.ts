@@ -9,7 +9,20 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+// AI Studio requires binding to 3000 locally.
+// If deployed in production on Railway, Railway sets RAILWAY_ENVIRONMENT / RAILWAY_PROJECT_ID and injects PORT.
+const isRailway = Boolean(
+  process.env.RAILWAY_ENVIRONMENT ||
+  process.env.RAILWAY_ENVIRONMENT_NAME ||
+  process.env.RAILWAY_ENVIRONMENT_ID ||
+  process.env.RAILWAY_PROJECT_ID ||
+  process.env.RAILWAY_SERVICE_ID ||
+  process.env.RAILWAY_PUBLIC_DOMAIN ||
+  process.env.RAILWAY_STATIC_URL
+);
+const PORT = (isRailway || process.env.NODE_ENV === "production") && process.env.PORT
+  ? parseInt(process.env.PORT, 10)
+  : 3000;
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || 'https://pviwktddsltnjjnokrwc.supabase.co';
@@ -21,6 +34,21 @@ app.use(express.json());
 // API route for health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+// API route for voice gateway diagnostics and readiness
+app.get("/api/voice-status", (req, res) => {
+  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
+  res.json({
+    status: "ok",
+    voiceReady: hasGeminiKey,
+    hasGeminiKey,
+    model: "gemini-3.1-flash-live-preview",
+    environment: isRailway ? "railway" : "default",
+    hint: hasGeminiKey
+      ? "Voice gateway backend is ready"
+      : "GEMINI_API_KEY is missing in server environment variables. Please add GEMINI_API_KEY in your Railway project Variables."
+  });
 });
 
 // API route to send emails via Resend
@@ -134,8 +162,9 @@ async function startServer() {
 
   server.on("upgrade", (request, socket, head) => {
     try {
-      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
-      if (url.pathname === "/live") {
+      const rawUrl = request.url || "";
+      const pathname = rawUrl.split("?")[0].replace(/\/$/, "");
+      if (pathname === "/live") {
         wss.handleUpgrade(request, socket, head, (ws) => {
           wss.emit("connection", ws, request);
         });
@@ -152,14 +181,22 @@ async function startServer() {
     console.log("[WS CONNECTED] Client connected to Voice Gateway");
     
     // Extract custom voice preference from query parameters (fallback to "Aoede")
-    const urlParams = new URL(request.url || "", `http://${request.headers.host || "localhost"}`).searchParams;
-    const selectedVoice = urlParams.get("voice") || "Aoede";
+    let selectedVoice = "Aoede";
+    try {
+      const queryString = (request.url || "").split("?")[1];
+      if (queryString) {
+        const params = new URLSearchParams(queryString);
+        selectedVoice = params.get("voice") || "Aoede";
+      }
+    } catch (e) {
+      selectedVoice = "Aoede";
+    }
 
     let session: any = null;
 
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY environment variable is not defined");
+      if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.trim()) {
+        throw new Error("GEMINI_API_KEY is not set on the server. Please add GEMINI_API_KEY to your Railway project Variables.");
       }
 
       session = await ai.live.connect({
@@ -267,6 +304,19 @@ async function startServer() {
             if (message.serverContent?.interrupted) {
               clientWs.send(JSON.stringify({ interrupted: true }));
             }
+          },
+          onerror: (geminiErr: any) => {
+            console.error("[GEMINI SESSION ERROR]", geminiErr);
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({ error: "Gemini session error: " + (geminiErr.message || "Connection interrupted") }));
+            }
+          },
+          onclose: (closeInfo: any) => {
+            console.log("[GEMINI SESSION CLOSED]", closeInfo);
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({ endCall: true }));
+              clientWs.close();
+            }
           }
         }
       });
@@ -359,10 +409,17 @@ async function startServer() {
 
     } catch (err: any) {
       console.error("[GEMINI CONNECT FAILED]", err);
+      const errMsg = err?.message || "Failed to establish voice session with Gemini Live";
       if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(JSON.stringify({ error: "Voice connection failed: " + err.message }));
+        clientWs.send(JSON.stringify({ error: errMsg }));
       }
-      clientWs.close();
+      setTimeout(() => {
+        try {
+          if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+            clientWs.close(1011, errMsg.slice(0, 100));
+          }
+        } catch (e) {}
+      }, 400);
     }
   });
 }
