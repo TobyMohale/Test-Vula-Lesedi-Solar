@@ -60,7 +60,28 @@ export default function ContactForm() {
       console.warn("Supabase lead insertion error:", err);
     }
 
-    // 2. Also save to local storage pipeline backup so Admin Dashboard picks it up immediately
+    // 2. Dispatch email notifications via backend /api/leads endpoint
+    try {
+      const configuredBackend = 
+        (import.meta as any).env?.VITE_BACKEND_URL || 
+        (window.location.hostname.includes("vulalesedipowersolutions.co.za") || window.location.hostname.includes("netlify.app")
+          ? "https://test-vula-lesedi-solar-production.up.railway.app"
+          : "");
+      const leadsEndpoint = configuredBackend ? `${configuredBackend.replace(/\/$/, "")}/api/leads` : "/api/leads";
+
+      await fetch(leadsEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newLead,
+          source: "Website Consultation Form"
+        })
+      });
+    } catch (apiErr) {
+      console.warn("Lead email notification trigger error:", apiErr);
+    }
+
+    // 3. Also save to local storage pipeline backup so Admin Dashboard picks it up immediately
     try {
       const localLeads = JSON.parse(localStorage.getItem("vula_lesedi_local_leads") || "[]");
       localLeads.unshift({

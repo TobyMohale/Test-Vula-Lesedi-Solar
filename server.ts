@@ -62,52 +62,232 @@ app.get("/api/voice-status", (req, res) => {
   });
 });
 
-// API route to send emails via Resend
+// Helper to send email via Resend with verified domain
+async function sendResendEmail({
+  to,
+  subject,
+  html,
+  replyTo
+}: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  replyTo?: string;
+}) {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) {
+    console.log("----------------- EMAIL PREVIEW (NO RESEND_API_KEY) -----------------");
+    console.log(`To: ${Array.isArray(to) ? to.join(", ") : to}`);
+    console.log(`Subject: ${subject}`);
+    console.log(`Content:\n${html.replace(/<[^>]*>/g, " ").substring(0, 300)}...`);
+    console.log("--------------------------------------------------------------------");
+    return { success: true, simulated: true };
+  }
+
+  // Use the verified domain vulalesedipowersolutions.co.za
+  const fromAddress = "Vula Lesedi Solar <notifications@vulalesedipowersolutions.co.za>";
+
+  const payload: any = {
+    from: fromAddress,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html,
+  };
+
+  if (replyTo) {
+    payload.reply_to = replyTo;
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${resendKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await response.json() as any;
+  if (!response.ok) {
+    console.error("Resend API rejected request:", data);
+    throw new Error(data.message || data.error || "Failed to send email via Resend API");
+  }
+
+  console.log(`Resend email dispatched successfully [ID: ${data.id}] to ${Array.isArray(to) ? to.join(", ") : to}`);
+  return { success: true, data };
+}
+
+// Helper to notify both client and admin upon lead capture
+async function notifyNewLeadCaptured(lead: {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  system_interest?: string;
+  message?: string;
+  source?: string;
+}) {
+  const adminEmail = "lesedisolarandbackup@gmail.com";
+  const userEmail = lead.email ? lead.email.trim() : null;
+  const leadName = lead.name || "Valued Client";
+  const leadSource = lead.source || "Thandi (Virtual Receptionist)";
+
+  console.log(`Processing lead notifications for: ${leadName} (${userEmail || 'No email'}) from ${leadSource}`);
+
+  // 1. Send notification to Vula Lesedi Admin Team
+  try {
+    const adminHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+        <div style="background: #0a2240; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+          <h2 style="color: #ffffff; margin: 0; font-size: 20px;">⚡ New Solar & Backup Lead Captured</h2>
+          <p style="color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;">Captured via ${leadSource}</p>
+        </div>
+        <div style="padding: 24px 16px;">
+          <p style="font-size: 15px; color: #334155; margin-bottom: 20px;">A new customer has requested a solar assessment or consultation:</p>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #1e293b;">
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 0; font-weight: bold; width: 140px; color: #64748b;">Client Name:</td>
+              <td style="padding: 10px 0; font-weight: 600;">${lead.name || "Not provided"}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 0; font-weight: bold; color: #64748b;">Phone Number:</td>
+              <td style="padding: 10px 0;"><a href="tel:${lead.phone}" style="color: #16a34a; font-weight: bold; text-decoration: none;">${lead.phone || "Not provided"}</a></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 0; font-weight: bold; color: #64748b;">Email Address:</td>
+              <td style="padding: 10px 0;">${lead.email ? `<a href="mailto:${lead.email}" style="color: #0284c7; text-decoration: none;">${lead.email}</a>` : "Not provided"}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 0; font-weight: bold; color: #64748b;">Location / Area:</td>
+              <td style="padding: 10px 0;">${lead.location || "Gauteng"}</td>
+            </tr>
+            ${lead.system_interest ? `
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+              <td style="padding: 10px 0; font-weight: bold; color: #64748b;">System Interest:</td>
+              <td style="padding: 10px 0; color: #16a34a; font-weight: bold;">${lead.system_interest}</td>
+            </tr>` : ""}
+            ${lead.message ? `
+            <tr>
+              <td style="padding: 10px 0; font-weight: bold; color: #64748b; vertical-align: top;">Notes / Message:</td>
+              <td style="padding: 10px 0; color: #475569;">${lead.message}</td>
+            </tr>` : ""}
+          </table>
+          <div style="margin-top: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; text-align: center;">
+            <p style="margin: 0; font-size: 13px; color: #64748b;">This inquiry is already recorded in your Admin CRM Dashboard.</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    await sendResendEmail({
+      to: adminEmail,
+      subject: `⚡ New Lead: ${leadName} - ${lead.location || "Gauteng"} (${leadSource})`,
+      html: adminHtml,
+      replyTo: userEmail || undefined
+    });
+  } catch (err: any) {
+    console.error("Failed to send admin notification email:", err.message || err);
+  }
+
+  // 2. Send instant confirmation email to the user if an email was provided
+  if (userEmail && userEmail.includes("@")) {
+    try {
+      const userHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+          <div style="background: #0a2240; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: bold;">Vula Lesedi Power Solutions</h1>
+            <p style="color: #38bdf8; margin: 6px 0 0 0; font-size: 14px; font-weight: 600;">Powering Your Home & Business With Reliable Solar</p>
+          </div>
+          <div style="padding: 24px 16px; line-height: 1.6; color: #334155;">
+            <p style="font-size: 16px; font-weight: bold; color: #0f172a;">Sanibona, ${leadName}!</p>
+            <p style="font-size: 14px;">
+              Thank you for reaching out to <strong>Vula Lesedi Power Solutions</strong>. We have successfully received your inquiry for a solar and backup power solution.
+            </p>
+            <div style="background: #f0fdf4; border-left: 4px solid #16a34a; padding: 16px; border-radius: 4px; margin: 20px 0;">
+              <h3 style="color: #166534; margin: 0 0 8px 0; font-size: 15px;">Your Inquiry Details:</h3>
+              <p style="margin: 4px 0; font-size: 14px;"><strong>Contact Number:</strong> ${lead.phone || "Provided"}</p>
+              <p style="margin: 4px 0; font-size: 14px;"><strong>Area:</strong> ${lead.location || "Gauteng"}</p>
+              ${lead.system_interest ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Package / Requirement:</strong> ${lead.system_interest}</p>` : ""}
+            </div>
+            <p style="font-size: 14px;">
+              Our senior solar technical team is currently reviewing your energy requirements. One of our advisors will contact you shortly via phone or WhatsApp to provide your customized proposal and answer any technical questions.
+            </p>
+            <div style="margin-top: 28px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #64748b;">
+              <p style="margin: 0 0 4px 0;"><strong>Vula Lesedi Power Solutions</strong></p>
+              <p style="margin: 0 0 4px 0;">📍 Serving Greater Gauteng (Johannesburg, Pretoria, Midrand & surrounding areas)</p>
+              <p style="margin: 0 0 4px 0;">📞 Phone / WhatsApp: <a href="tel:+27827878846" style="color: #16a34a; font-weight: bold; text-decoration: none;">082 787 8846</a></p>
+              <p style="margin: 0;">✉️ Email: <a href="mailto:lesedisolarandbackup@gmail.com" style="color: #0284c7; text-decoration: none;">lesedisolarandbackup@gmail.com</a></p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      await sendResendEmail({
+        to: userEmail,
+        subject: "Thank You for Contacting Vula Lesedi Power Solutions",
+        html: userHtml,
+        replyTo: "lesedisolarandbackup@gmail.com"
+      });
+    } catch (err: any) {
+      console.error("Failed to send client confirmation email:", err.message || err);
+    }
+  }
+}
+
+// API route to send custom emails via Resend (e.g., quotes from Admin Dashboard)
 app.post("/api/send-email", async (req, res) => {
-  const { to, subject, html } = req.body;
+  const { to, subject, html, replyTo } = req.body;
   if (!to || !subject || !html) {
     return res.status(400).json({ error: "Missing required fields: to, subject, html" });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    console.log("----------------- EMAIL PREVIEW (RESEND SIMULATOR) -----------------");
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Content:\n${html.replace(/<[^>]*>/g, " ").substring(0, 300)}...`);
-    console.log("--------------------------------------------------------------------");
-    return res.json({ 
-      success: true, 
-      simulated: true, 
-      message: "Resend API Key is not configured. Email preview logged to server terminal successfully." 
-    });
-  }
-
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${resendKey}`
-      },
-      body: JSON.stringify({
-        from: "Vula Lesedi Power <onboarding@resend.dev>",
-        to,
-        subject,
-        html
-      })
-    });
-
-    const data = await response.json() as any;
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to send email via Resend API");
-    }
-
-    res.json({ success: true, data });
+    const result = await sendResendEmail({ to, subject, html, replyTo });
+    res.json(result);
   } catch (err: any) {
-    console.error("Resend API Error:", err);
+    console.error("Resend API Error in /api/send-email:", err);
     res.status(500).json({ error: err.message || "Internal server error sending email" });
   }
+});
+
+// Dedicated API route for submitting a new lead and triggering notification emails
+app.post("/api/leads", async (req, res) => {
+  const { name, phone, email, location, system_interest, message, source } = req.body;
+  
+  const leadRecord = {
+    name: (name || "").trim(),
+    phone: (phone || "").trim(),
+    email: (email || "").trim(),
+    location: (location || "").trim(),
+    system_interest: system_interest || "",
+    message: (message || "").trim(),
+    status: "New",
+    created_at: new Date().toISOString()
+  };
+
+  // 1. Insert into Supabase
+  try {
+    const { error: dbError } = await supabase.from('leads').insert([leadRecord]);
+    if (dbError) {
+      console.error("Supabase insert error in /api/leads:", dbError);
+    } else {
+      console.log("Lead inserted into Supabase via /api/leads");
+    }
+  } catch (dbErr) {
+    console.warn("Supabase insert exception:", dbErr);
+  }
+
+  // 2. Trigger emails to both User and Admin
+  try {
+    await notifyNewLeadCaptured({
+      ...leadRecord,
+      source: source || "Website Contact Form"
+    });
+  } catch (emailErr) {
+    console.error("Error triggering lead emails:", emailErr);
+  }
+
+  res.json({ success: true, message: "Lead recorded and notifications dispatched." });
 });
 
 const SYSTEM_INSTRUCTION = `# PERSONA & IDENTITY
@@ -384,12 +564,26 @@ async function startServer() {
             if (name === "verify_lead_details") {
               if (result === "confirmed") {
                 // Save to Supabase
-                supabase.from('leads').insert([lead]).then(({ error }) => {
+                const leadData = {
+                  ...lead,
+                  status: "New",
+                  created_at: new Date().toISOString()
+                };
+
+                supabase.from('leads').insert([leadData]).then(({ error }) => {
                   if (error) {
                     console.error("Supabase insert error:", error);
                   } else {
                     console.log("Lead saved to Supabase successfully.");
                   }
+                });
+
+                // Trigger email notification to user & admin via Resend
+                notifyNewLeadCaptured({
+                  ...lead,
+                  source: "Thandi (Virtual Receptionist Call)"
+                }).catch((emailErr) => {
+                  console.error("Error triggering voice lead email notification:", emailErr);
                 });
                 
                 // Tell Gemini the tool was successful
