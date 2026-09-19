@@ -1,5 +1,10 @@
 import React, { useState } from "react";
-import { Phone, Mail, MapPin, MessageSquare, Send, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Phone, Mail, MapPin, MessageSquare, Send, CheckCircle2, ShieldCheck, Loader2 } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://pviwktddsltnjjnokrwc.supabase.co';
+const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_PbxicU-umhZOO4PRhSGnHQ_qztBo_UW';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function ContactForm() {
   const [formData, setFormData] = useState({
@@ -12,6 +17,7 @@ export default function ContactForm() {
   });
 
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const locationsInGauteng = [
     "Pretoria", "Centurion", "Midrand", "Sandton", 
@@ -32,10 +38,42 @@ export default function ContactForm() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Simulate client-side submission and trigger success UI
+    setIsSubmitting(true);
+
+    const newLead = {
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      email: formData.email.trim(),
+      location: formData.location.trim(),
+      system_interest: formData.systemInterest,
+      message: formData.message.trim(),
+      status: "New",
+      created_at: new Date().toISOString()
+    };
+
+    // 1. Save to Supabase
+    try {
+      await supabase.from("leads").insert([newLead]);
+    } catch (err) {
+      console.warn("Supabase lead insertion error:", err);
+    }
+
+    // 2. Also save to local storage pipeline backup so Admin Dashboard picks it up immediately
+    try {
+      const localLeads = JSON.parse(localStorage.getItem("vula_lesedi_local_leads") || "[]");
+      localLeads.unshift({
+        id: "form-" + Math.random().toString(36).substring(2, 9),
+        ...newLead
+      });
+      localStorage.setItem("vula_lesedi_local_leads", JSON.stringify(localLeads));
+      window.dispatchEvent(new Event("storage"));
+    } catch (e) {
+      console.warn("Local leads storage write error:", e);
+    }
+
+    setIsSubmitting(false);
     setIsSubmitted(true);
   };
 
@@ -340,11 +378,21 @@ Please contact me back as soon as possible.`;
                 {/* Submit Action Button */}
                 <button
                   type="submit"
-                  className="flex items-center justify-center gap-2 w-full bg-[#0a2240] hover:bg-[#051121] text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 cursor-pointer text-sm uppercase tracking-wider mt-2"
+                  disabled={isSubmitting}
+                  className="flex items-center justify-center gap-2 w-full bg-[#0a2240] hover:bg-[#051121] disabled:opacity-60 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all duration-200 cursor-pointer text-sm uppercase tracking-wider mt-2"
                   id="contact-form-submit"
                 >
-                  <Send className="h-4 w-4" />
-                  <span>Prepare Free Proposal Request</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Saving Request...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      <span>Prepare Free Proposal Request</span>
+                    </>
+                  )}
                 </button>
 
               </form>

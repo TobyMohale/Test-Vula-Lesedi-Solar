@@ -63,6 +63,12 @@ const STATUS_COLORS: Record<string, { bg: string, text: string, border: string, 
   }
 };
 
+const ALLOWED_ADMIN_EMAILS = [
+  'lesedisolarandbackup@gmail.com',
+  'johannesburgwebstudio@gmail.com',
+];
+const ADMIN_CREDENTIAL_PASSWORD = 'Vulalesedi_Pw10126';
+
 export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme: string, toggleTheme: () => void, onLogout?: () => void }) {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,12 +86,13 @@ export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme
     try {
       const jwt = response.credential;
       const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      const email = payload.email;
+      const email = (payload.email || '').toLowerCase().trim();
       const isEmailVerified = payload.email_verified;
 
-      if (isEmailVerified && email === 'lesedisolarandbackup@gmail.com') {
+      if (isEmailVerified && ALLOWED_ADMIN_EMAILS.includes(email)) {
         setIsAuthenticated(true);
         localStorage.setItem('vula_lesedi_admin_authenticated', 'true');
+        localStorage.setItem('vula_lesedi_admin_email', email);
         setAuthError(null);
         logLeadHistory('system', 'admin_login', `Admin logged in via Google OAuth (${email})`);
       } else {
@@ -103,19 +110,21 @@ export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme
     const emailClean = adminEmail.trim().toLowerCase();
     const passwordClean = adminPassword.trim();
 
-    if (emailClean === 'lesedisolarandbackup@gmail.com' && passwordClean === 'Vincent@1987') {
+    if (ALLOWED_ADMIN_EMAILS.includes(emailClean) && passwordClean === ADMIN_CREDENTIAL_PASSWORD) {
       setIsAuthenticated(true);
       localStorage.setItem('vula_lesedi_admin_authenticated', 'true');
+      localStorage.setItem('vula_lesedi_admin_email', emailClean);
       setAuthError(null);
       logLeadHistory('system', 'admin_login', `Admin logged in via credentials (${emailClean})`);
     } else {
-      setAuthError('Invalid administrator credentials. Please check your email and password.');
+      setAuthError('Invalid administrator credentials. Access is restricted to authorized administrator accounts.');
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     localStorage.removeItem('vula_lesedi_admin_authenticated');
+    localStorage.removeItem('vula_lesedi_admin_email');
     if (onLogout) {
       onLogout();
     }
@@ -344,7 +353,14 @@ export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme
     setEmailSendResult(null);
 
     try {
-      const res = await fetch("/api/send-email", {
+      const configuredBackend = 
+        (import.meta as any).env?.VITE_BACKEND_URL || 
+        (window.location.hostname.includes("vulalesedipowersolutions.co.za") || window.location.hostname.includes("netlify.app")
+          ? "https://test-vula-lesedi-solar-production.up.railway.app"
+          : "");
+      const endpoint = configuredBackend ? `${configuredBackend.replace(/\/$/, "")}/api/send-email` : "/api/send-email";
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -383,8 +399,21 @@ export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setLeads(data || []);
+      // Read any local leads submitted from the contact form or offline buffer
+      let combinedLeads = data || [];
+      try {
+        const localLeads = JSON.parse(localStorage.getItem('vula_lesedi_local_leads') || '[]');
+        if (Array.isArray(localLeads) && localLeads.length > 0) {
+          const existingIds = new Set(combinedLeads.map(l => String(l.id)));
+          const unmergedLocal = localLeads.filter(l => !existingIds.has(String(l.id)));
+          combinedLeads = [...unmergedLocal, ...combinedLeads];
+        }
+      } catch (e) {
+        console.warn('Error reading local leads fallback:', e);
+      }
+
+      if (error && combinedLeads.length === 0) throw error;
+      setLeads(combinedLeads);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch leads');
     } finally {
@@ -395,6 +424,9 @@ export default function AdminDashboard({ theme, toggleTheme, onLogout }: { theme
   useEffect(() => {
     if (isAuthenticated) {
       fetchLeads();
+      const onStorage = () => fetchLeads();
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
     }
   }, [isAuthenticated]);
 

@@ -9,13 +9,21 @@ interface AdminGuardProps {
   toggleTheme: () => void;
 }
 
+const ALLOWED_ADMIN_EMAILS = [
+  "lesedisolarandbackup@gmail.com",
+  "johannesburgwebstudio@gmail.com",
+];
+const ADMIN_CREDENTIAL_PASSWORD = "Vulalesedi_Pw10126";
+
 export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardProps) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   
   // Credentials-based emergency auth fallback
   const [localAuthenticated, setLocalAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem("vula_lesedi_admin_authenticated") === "true";
+    const isAuth = localStorage.getItem("vula_lesedi_admin_authenticated") === "true";
+    const email = (localStorage.getItem("vula_lesedi_admin_email") || "").toLowerCase().trim();
+    return isAuth && ALLOWED_ADMIN_EMAILS.includes(email);
   });
 
   const [adminEmail, setAdminEmail] = useState("");
@@ -29,15 +37,20 @@ export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardP
       auth,
       (user) => {
         if (user) {
-          // Strict verification: only allow lesedisolarandbackup@gmail.com
-          if (user.email === "lesedisolarandbackup@gmail.com") {
+          // Strict verification: case-insensitive check for authorized admin
+          const userEmail = (user.email || "").toLowerCase().trim();
+          if (ALLOWED_ADMIN_EMAILS.includes(userEmail)) {
             setFirebaseUser(user);
+            localStorage.setItem("vula_lesedi_admin_authenticated", "true");
+            localStorage.setItem("vula_lesedi_admin_email", userEmail);
             setAuthError(null);
           } else {
             // Immediately sign out unauthorized users
             signOut(auth);
             setFirebaseUser(null);
-            setAuthError("Access Denied: This Google account is not authorized to access the administrator panel.");
+            localStorage.removeItem("vula_lesedi_admin_authenticated");
+            localStorage.removeItem("vula_lesedi_admin_email");
+            setAuthError("Access Denied: This Google account is not authorized to access the administrator panel. Only authorized Vula Lesedi administrators may log in.");
           }
         } else {
           setFirebaseUser(null);
@@ -59,10 +72,22 @@ export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardP
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
-      console.error("Google Sign-In Error Object:", err);
-      
-      const errorCode = err.code || "";
-      const errorMessage = err.message || "";
+      const errorCode = err?.code || "";
+      const errorMessage = err?.message || "";
+
+      // User voluntarily closed the popup or clicked outside: reset silently or without alarming error
+      if (
+        errorCode === "auth/popup-closed-by-user" || 
+        errorCode === "auth/cancelled-popup-request" ||
+        errorMessage.includes("popup-closed-by-user") ||
+        errorMessage.includes("cancelled-popup-request")
+      ) {
+        // Do not spam console with error objects for normal user cancellation
+        setAuthError(null);
+        return;
+      }
+
+      console.error("Google Sign-In Error:", err);
       
       // Strict user-friendly mapping for 401: invalid_client / configuration errors
       if (
@@ -74,14 +99,12 @@ export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardP
       ) {
         setAuthError(
           "The Google Authentication client is currently misconfigured or undergoes setup. " +
-          "Please log in using the secure emergency credential fields below."
+          "Please log in using the secure credential fields below."
         );
       } else if (errorCode === "auth/popup-blocked") {
-        setAuthError("Sign-in window was blocked by your browser. Please enable popups and try again.");
-      } else if (errorCode === "auth/popup-closed-by-user") {
-        setAuthError("Sign-in process was closed before completion. Please try again.");
+        setAuthError("Sign-in popup was blocked by your browser. Please allow popups for this site or use the email/password fields below.");
       } else {
-        setAuthError("An unexpected authentication error occurred. Please use your credentials below.");
+        setAuthError("An authentication error occurred. You can also sign in directly using your administrator email and password below.");
       }
     } finally {
       setIsSigningIn(false);
@@ -95,12 +118,13 @@ export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardP
     const emailClean = adminEmail.trim().toLowerCase();
     const passwordClean = adminPassword.trim();
 
-    if (emailClean === "lesedisolarandbackup@gmail.com" && passwordClean === "Vincent@1987") {
+    if (ALLOWED_ADMIN_EMAILS.includes(emailClean) && passwordClean === ADMIN_CREDENTIAL_PASSWORD) {
       setLocalAuthenticated(true);
       localStorage.setItem("vula_lesedi_admin_authenticated", "true");
+      localStorage.setItem("vula_lesedi_admin_email", emailClean);
       setAuthError(null);
     } else {
-      setAuthError("Invalid administrator credentials. Please check your email and password.");
+      setAuthError("Invalid administrator credentials. Access is restricted to authorized administrator accounts.");
     }
   };
 
@@ -112,14 +136,21 @@ export default function AdminGuard({ children, theme, toggleTheme }: AdminGuardP
     }
     setLocalAuthenticated(false);
     localStorage.removeItem("vula_lesedi_admin_authenticated");
+    localStorage.removeItem("vula_lesedi_admin_email");
     setFirebaseUser(null);
     setAdminEmail("");
     setAdminPassword("");
   };
 
-  const isUserAuthenticated = 
-    (firebaseUser !== null && firebaseUser.email === "lesedisolarandbackup@gmail.com") || 
-    localAuthenticated;
+  const isFirebaseAuthorized = 
+    firebaseUser !== null && 
+    ALLOWED_ADMIN_EMAILS.includes((firebaseUser.email || "").toLowerCase().trim());
+
+  const isLocalAuthorized = 
+    localAuthenticated && 
+    ALLOWED_ADMIN_EMAILS.includes((localStorage.getItem("vula_lesedi_admin_email") || "").toLowerCase().trim());
+
+  const isUserAuthenticated = isFirebaseAuthorized || isLocalAuthorized;
 
   // Render a polished loading screen during Firebase Session Initialization
   if (isInitializing) {
