@@ -127,9 +127,23 @@ export default function VoiceReceptionist() {
       nextStartTimeRef.current = 0;
       activeSourcesRef.current = [];
 
-      // Determine correct WS protocol based on page environment
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/live?voice=${selectedVoice}`;
+      // Determine correct WS protocol and host based on page environment
+      // If deployed on static hosting (Netlify / custom domain) without a local backend, route to the Railway voice backend
+      const configuredBackend = 
+        (import.meta as any).env?.VITE_BACKEND_URL || 
+        (window.location.hostname.includes("vulalesedipowersolutions.co.za") || window.location.hostname.includes("netlify.app")
+          ? "test-vula-lesedi-solar-production.up.railway.app"
+          : "");
+      let wsUrl: string;
+
+      if (configuredBackend) {
+        const cleanBackend = configuredBackend.replace(/^https?:\/\//, "").replace(/^wss?:\/\//, "").replace(/\/$/, "");
+        const wsProto = configuredBackend.startsWith("http://") || configuredBackend.startsWith("ws://") ? "ws:" : "wss:";
+        wsUrl = `${wsProto}//${cleanBackend}/live?voice=${selectedVoice}`;
+      } else {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        wsUrl = `${protocol}//${window.location.host}/live?voice=${selectedVoice}`;
+      }
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -251,7 +265,10 @@ export default function VoiceReceptionist() {
       ws.onerror = async (err) => {
         console.error("WebSocket connection error:", err);
         try {
-          const res = await fetch("/api/voice-status");
+          const apiBase = configuredBackend 
+            ? (configuredBackend.startsWith("http") ? configuredBackend.replace(/\/$/, "") : `https://${configuredBackend.replace(/\/$/, "")}`)
+            : "";
+          const res = await fetch(`${apiBase}/api/voice-status`);
           if (res.ok) {
             const status = await res.json();
             if (!status.hasGeminiKey) {
@@ -259,9 +276,13 @@ export default function VoiceReceptionist() {
               disconnect();
               return;
             }
+          } else if (res.status === 502) {
+            setError("Railway 502 Bad Gateway. In Railway Settings -> Networking, remove Target Port 3000 (leave it blank) so Railway auto-routes traffic.");
+            disconnect();
+            return;
           }
         } catch (e) {
-          setError("Cannot reach the backend server. Please verify your Railway deployment is active and online.");
+          setError("Railway backend is unreachable (502 or offline). In Railway Settings -> Networking, remove Target Port 3000 (leave blank) and check Railway deploy logs.");
           disconnect();
           return;
         }

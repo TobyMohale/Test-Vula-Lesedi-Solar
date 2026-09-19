@@ -9,8 +9,8 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 
 const app = express();
-// AI Studio requires binding to 3000 locally.
-// If deployed in production on Railway, Railway sets RAILWAY_ENVIRONMENT / RAILWAY_PROJECT_ID and injects PORT.
+
+// Detect Railway environment
 const isRailway = Boolean(
   process.env.RAILWAY_ENVIRONMENT ||
   process.env.RAILWAY_ENVIRONMENT_NAME ||
@@ -20,9 +20,9 @@ const isRailway = Boolean(
   process.env.RAILWAY_PUBLIC_DOMAIN ||
   process.env.RAILWAY_STATIC_URL
 );
-const PORT = (isRailway || process.env.NODE_ENV === "production") && process.env.PORT
-  ? parseInt(process.env.PORT, 10)
-  : 3000;
+
+// In production/Railway, listen on process.env.PORT (or 3000 by default)
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || 'https://pviwktddsltnjjnokrwc.supabase.co';
@@ -30,6 +30,17 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY || 'sb_publishable_PbxicU-umhZ
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(express.json());
+
+// Enable CORS for custom domains and Netlify frontend
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // API route for health check
 app.get("/api/health", (req, res) => {
@@ -154,28 +165,49 @@ async function startServer() {
     console.log("Serving static files from /dist");
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Vula Lesedi Server running on http://localhost:${PORT}`);
-  });
-
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on("upgrade", (request, socket, head) => {
-    try {
-      const rawUrl = request.url || "";
-      const pathname = rawUrl.split("?")[0].replace(/\/$/, "");
-      if (pathname === "/live") {
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          wss.emit("connection", ws, request);
-        });
-      } else {
+  const setupUpgrade = (srv: any) => {
+    srv.on("upgrade", (request: any, socket: any, head: any) => {
+      try {
+        const rawUrl = request.url || "";
+        const pathname = rawUrl.split("?")[0].replace(/\/$/, "");
+        if (pathname === "/live") {
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit("connection", ws, request);
+          });
+        } else {
+          socket.destroy();
+        }
+      } catch (err) {
+        console.error("[WS UPGRADE ERROR]", err);
         socket.destroy();
       }
-    } catch (err) {
-      console.error("[WS UPGRADE ERROR]", err);
-      socket.destroy();
-    }
+    });
+  };
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Vula Lesedi Server running on http://0.0.0.0:${PORT}`);
   });
+  server.on("error", (err: any) => {
+    console.error(`[SERVER ERROR] Failed to bind to port ${PORT}:`, err);
+  });
+  setupUpgrade(server);
+
+  // If Railway or environment set a PORT other than 3000, also bind 3000 for Railway Target Port 3000
+  if (PORT !== 3000) {
+    try {
+      const server3000 = app.listen(3000, "0.0.0.0", () => {
+        console.log("Vula Lesedi Server also listening on custom target port 3000");
+      });
+      server3000.on("error", (e: any) => {
+        console.log("Port 3000 optional listener status:", e.code || e.message);
+      });
+      setupUpgrade(server3000);
+    } catch (err) {
+      console.warn("Could not bind optional port 3000:", err);
+    }
+  }
 
   wss.on("connection", async (clientWs, request) => {
     console.log("[WS CONNECTED] Client connected to Voice Gateway");
